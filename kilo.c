@@ -1,3 +1,4 @@
+/*** includes ***/
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -5,8 +6,10 @@
 #include <termios.h>
 #include <unistd.h>
 
+/*** data ***/
 struct termios original_state;
 
+/*** terminal ***/
 void die(const char *s) {
   perror(s);
   exit(1);
@@ -51,6 +54,7 @@ void enableRawMode() {
     die("tcsetattr failed");
 }
 
+/*** init ***/
 int main(int argc, char **argv) {
   enableRawMode();
 
