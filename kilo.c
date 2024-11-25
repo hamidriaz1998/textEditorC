@@ -1,6 +1,5 @@
 /*** includes ***/
 #include <asm-generic/ioctls.h>
-#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +10,7 @@
 
 /*** defines ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
+#define KILO_VERSION "0.0.1"
 
 /*** data ***/
 struct editorConfig {
@@ -141,7 +141,24 @@ void abFree(struct abuf *ab) { free(ab->b); }
 /*** output ***/
 void editorDrawRows(struct abuf *ab) {
   for (int i = 0; i < E.screenRows; i++) {
-    abAppend(ab, "~", 1);
+    if (i == E.screenRows / 3) {
+      char welcome[80];
+      int welcomelen = snprintf(welcome, sizeof(welcome),
+                                "Kilo editor -- version %s", KILO_VERSION);
+      if (welcomelen > E.screenCols)
+        welcomelen = E.screenCols;
+      int padding = (E.screenCols - welcomelen) / 2;
+      if (padding) {
+        abAppend(ab, "~", 1);
+        padding--;
+      }
+      while (padding--)
+        abAppend(ab, " ", 1);
+      abAppend(ab, welcome, welcomelen);
+    } else
+      abAppend(ab, "~", 1);
+    // Clear the current line to the right of the cursor
+    abAppend(ab, "\x1b[K", 3);
     if (i < E.screenRows - 1) {
       abAppend(ab, "\r\n", 2);
     }
@@ -153,8 +170,6 @@ void editorRefreshScreen() {
 
   // Hide Cursor
   abAppend(&ab, "\x1b[?25l", 6);
-  // Clear Screen
-  abAppend(&ab, "\x1b[2J", 4);
   // Reposition Cursor to the top left
   abAppend(&ab, "\x1b[H", 3);
 
