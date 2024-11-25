@@ -1,7 +1,10 @@
 /*** includes ***/
+#include <asm-generic/ioctls.h>
+#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -9,7 +12,13 @@
 #define CTRL_KEY(k) ((k) & 0x1f)
 
 /*** data ***/
-struct termios original_state;
+struct editorConfig {
+  struct termios orig_term_state;
+  int screenRows;
+  int screenCols;
+};
+
+struct editorConfig E;
 
 /*** terminal ***/
 void die(const char *s) {
@@ -21,16 +30,16 @@ void die(const char *s) {
 }
 
 void disableRawMode() {
-  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &original_state) == -1)
+  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_term_state) == -1)
     die("tcsetattr failed");
 }
 
 void enableRawMode() {
-  if (tcgetattr(STDIN_FILENO, &original_state) == -1)
+  if (tcgetattr(STDIN_FILENO, &E.orig_term_state) == -1)
     die("tcgetattr failed");
   atexit(disableRawMode);
 
-  struct termios raw = original_state;
+  struct termios raw = E.orig_term_state;
   // ICRNL flag is responsible for converting \r to \n
   // IXON flag is responsible for Ctrl-S and Ctrl-Q
   // BRKINT flag is responsible for sending SIGINT signal to the process
@@ -69,10 +78,52 @@ char editorReadKey() {
   return c;
 }
 
+int getCursorPosition(int *rows, int *cols) {
+  char buf[32];
+  unsigned int i = 0;
+  if (write(STDOUT_FILENO, "\1xb[6n", 4) != 4) {
+    return -1;
+  }
+
+  while (i < sizeof(buf) - 1) {
+    if (read(STDIN_FILENO, &buf[i], 1) != 1) {
+      break;
+    }
+    if (buf[i] == 'R') {
+      break;
+    }
+    i++;
+  }
+  buf[i] = '\0';
+  printf("\r\n&buf[1]: '%s'\r\n", &buf[1]);
+  if (buf[0] != '\x1b' || buf[1] != '[')
+    return -1;
+  if (sscanf(&buf[2], "%d;%d", rows, cols) != 2)
+    return -1;
+  return 0;
+}
+
+int getWindowSize(int *rows, int *cols) {
+  struct winsize ws;
+
+  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
+    if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12)
+      return -1;
+    return getCursorPosition(rows, cols);
+  } else {
+    *cols = ws.ws_col;
+    *rows = ws.ws_row;
+    return 0;
+  }
+}
+
 /*** output ***/
 void editorDrawRows() {
-  for (int i = 0; i < 24; i++) {
-    write(STDOUT_FILENO, "~\r\n", 3);
+  for (int i = 0; i < E.screenRows; i++) {
+    write(STDOUT_FILENO, "~", 1);
+    if (i < E.screenRows - 1) {
+      write(STDOUT_FILENO, "\r\n", 2);
+    }
   }
 }
 
@@ -98,7 +149,14 @@ void editorProcessInput() {
 }
 
 /*** init ***/
+void initEditor() {
+  if (getWindowSize(&E.screenRows, &E.screenCols) == -1) {
+    die("getWindowSize failed");
+  }
+}
+
 int main(int argc, char **argv) {
+  initEditor();
   enableRawMode();
 
   while (1) {
